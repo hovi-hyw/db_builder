@@ -47,6 +47,8 @@ else:
 from StockDownloader.src.tasks.download_stock_task import download_all_stock_data
 from StockDownloader.src.tasks.download_index_task import download_all_index_data
 from StockDownloader.src.tasks.download_etf_task import download_all_etf_data
+from StockDownloader.src.database.session import SessionLocal
+from StockDownloader.src.services.market_summary import MarketSummaryService
 
 def retry_with_delay(max_retries=3, initial_delay=60):
     """
@@ -209,6 +211,15 @@ def run_daily_update(max_retries=3):
             if stock_thread:
                 stock_thread.join()
                 logger.info("股票数据更新完成")
+            
+            # 更新市场分布统计数据
+            logger.info("开始更新市场分布统计数据...")
+            try:
+                with SessionLocal() as db:
+                    MarketSummaryService.update_from_derived_index(db)
+                logger.info("市场分布统计数据更新完成")
+            except Exception as e:
+                logger.error(f"更新市场分布统计数据时发生错误: {str(e)}")
             
             logger.info("每日更新任务执行完成")
             return  # 如果所有更新都成功，直接返回

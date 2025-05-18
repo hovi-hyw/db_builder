@@ -58,3 +58,30 @@ class IndexData(BaseModel):
     low: float
     volume: float
     amount: float
+
+
+class MarketSummaryData(BaseModel):
+    """
+    市场分布统计数据模型。
+    定义了市场分布统计数据的结构，用于API的输入和输出。
+
+    Attributes:
+        symbol (str): 指数代码。
+        date (date): 日期。
+        count_lt_neg8pct (float): 跌幅小于-8%的股票占比。
+        count_neg8pct_to_neg5pct (float): 跌幅在-8%到-5%之间的股票占比。
+        count_neg5pct_to_neg2pct (float): 跌幅在-5%到-2%之间的股票占比。
+        count_neg2pct_to_2pct (float): 涨跌幅在-2%到2%之间的股票占比。
+        count_2pct_to_5pct (float): 涨幅在2%到5%之间的股票占比。
+        count_5pct_to_8pct (float): 涨幅在5%到8%之间的股票占比。
+        count_gt_8pct (float): 涨幅大于8%的股票占比。
+    """
+    symbol: str
+    date: date
+    count_lt_neg8pct: float
+    count_neg8pct_to_neg5pct: float
+    count_neg5pct_to_neg2pct: float
+    count_neg2pct_to_2pct: float
+    count_2pct_to_5pct: float
+    count_5pct_to_8pct: float
+    count_gt_8pct: float

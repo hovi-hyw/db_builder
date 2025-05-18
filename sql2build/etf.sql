@@ -1,3 +1,5 @@
+-- pg_dump -U si -d stock_db -s -t daily_etf  --查看表结构
+
 -- daily_etf
 CREATE TABLE public.daily_etf (
     symbol character varying NOT NULL,

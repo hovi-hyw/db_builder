@@ -7,9 +7,10 @@ Date: 2024-07-03
 
 from fastapi import FastAPI
 
-from .endpoints import stock, index
+from .endpoints import stock, index, market_summary
 
 app = FastAPI()
 
 app.include_router(stock.router, prefix="/api/v1")
 app.include_router(index.router, prefix="/api/v1")
+app.include_router(market_summary.router, prefix="/api/v1")
