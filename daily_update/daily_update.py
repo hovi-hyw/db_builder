@@ -216,7 +216,7 @@ def run_daily_update(max_retries=3):
             logger.info("开始更新市场分布统计数据...")
             try:
                 with SessionLocal() as db:
-                    MarketSummaryService.update_from_derived_index(db)
+                    MarketSummaryService.update_from_derived_index(db, num_processes=8)
                 logger.info("市场分布统计数据更新完成")
             except Exception as e:
                 logger.error(f"更新市场分布统计数据时发生错误: {str(e)}")

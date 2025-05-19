@@ -149,17 +149,80 @@ class MarketSummaryService:
             
             db.commit()
 
-    @classmethod
-    def update_from_derived_index(cls, db: Session) -> None:
+    @staticmethod
+    def _process_date_batch(date_batch, process_id):
         """
-        从derived_index表获取最新的日期数据，并更新市场分布统计数据。
+        处理一批日期数据的工作函数，用于多进程并行处理。
+
+        Args:
+            date_batch (List[date]): 需要处理的日期批次。
+            process_id (int): 进程ID，用于日志标识。
+
+        Returns:
+            int: 成功处理的日期数量。
+        """
+        import logging
+        from datetime import datetime
+        from ..database.session import SessionLocal
+        
+        # 创建数据库会话
+        # 注意：每个进程必须创建自己的数据库会话
+        with SessionLocal() as db:
+            # 获取logger
+            logger = logging.getLogger(f'daily_update_process_{process_id}')
+            
+            # 记录开始时间
+            start_time = datetime.now()
+            logger.info(f"进程 {process_id} 开始处理 {len(date_batch)} 个日期，当前时间: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            processed_count = 0
+            total_in_batch = len(date_batch)
+            
+            # 处理批次中的每个日期
+            for i, target_date in enumerate(date_batch):
+                # 计算进度
+                progress = (i + 1) / total_in_batch * 100
+                
+                # 每10个日期或第一个/最后一个日期显示一次进度
+                if (i + 1) % 10 == 0 or i == 0 or i == total_in_batch - 1:
+                    logger.info(f"进程 {process_id} 处理进度: {progress:.2f}% ({i+1}/{total_in_batch}), 当前处理日期: {target_date}")
+                
+                # 处理当前日期
+                try:
+                    MarketSummaryService.calculate_market_summary(db, target_date)
+                    processed_count += 1
+                    # 每处理10个日期提交一次事务，减少数据库锁定时间
+                    if (i + 1) % 10 == 0:
+                        db.commit()
+                except Exception as e:
+                    logger.error(f"进程 {process_id} 处理日期 {target_date} 时出错: {str(e)}")
+                    # 继续处理下一个日期
+                    continue
+            
+            # 确保所有更改都已提交
+            db.commit()
+            
+            # 记录结束时间和总耗时
+            end_time = datetime.now()
+            total_time = (end_time - start_time).total_seconds()
+            logger.info(f"进程 {process_id} 处理完成，总耗时: {total_time:.2f}秒, 成功处理了 {processed_count}/{total_in_batch} 个日期")
+            
+            return processed_count
+
+    @classmethod
+    def update_from_derived_index(cls, db: Session, num_processes=4) -> None:
+        """
+        从derived_index表获取最新的日期数据，并使用多进程并行更新市场分布统计数据。
 
         Args:
             db (Session): 数据库会话。
+            num_processes (int, optional): 并行处理的进程数量。默认为4。
         """
         import logging
         from datetime import datetime
         import time
+        import multiprocessing as mp
+        from math import ceil
         
         # 获取logger
         logger = logging.getLogger('daily_update')
@@ -186,58 +249,52 @@ class MarketSummaryService:
             logger.info("市场分布统计数据已是最新，无需更新")
             return
             
-        logger.info(f"共有 {total_dates} 个日期需要处理")
+        logger.info(f"共有 {total_dates} 个日期需要处理，将使用 {num_processes} 个进程并行处理")
         
-        # 处理每个未处理的日期
-        for i, target_date in enumerate(unprocessed_dates):
-            # 计算进度
-            progress = (i + 1) / total_dates * 100
-            
-            # 每10个日期或最后一个日期显示一次进度
-            if (i + 1) % 10 == 0 or i == 0 or i == total_dates - 1:
-                # 计算已用时间和预估剩余时间
-                elapsed_time = (datetime.now() - start_time).total_seconds()
-                if i > 0:  # 避免除以零
-                    estimated_total_time = elapsed_time / (i + 1) * total_dates
-                    remaining_time = estimated_total_time - elapsed_time
-                    logger.info(f"处理进度: {progress:.2f}% ({i+1}/{total_dates}), "
-                                f"已用时间: {elapsed_time:.2f}秒, "
-                                f"预估剩余时间: {remaining_time:.2f}秒, "
-                                f"当前处理日期: {target_date}")
-                else:
-                    logger.info(f"处理进度: {progress:.2f}% ({i+1}/{total_dates}), "
-                                f"当前处理日期: {target_date}")
-            
-            # 处理当前日期
-            try:
-                cls.calculate_market_summary(db, target_date)
-                # 每处理10个日期提交一次事务，减少数据库锁定时间
-                if (i + 1) % 10 == 0:
-                    db.commit()
-            except Exception as e:
-                logger.error(f"处理日期 {target_date} 时出错: {str(e)}")
-                # 继续处理下一个日期
-                continue
+        # 如果日期数量少于进程数，则调整进程数
+        if total_dates < num_processes:
+            num_processes = total_dates
+            logger.info(f"由于日期数量较少，调整为使用 {num_processes} 个进程")
         
-        # 确保所有更改都已提交
-        db.commit()
+        # 将日期分成多个批次
+        batch_size = ceil(total_dates / num_processes)
+        date_batches = [unprocessed_dates[i:i + batch_size] for i in range(0, total_dates, batch_size)]
+        
+        # 创建进程池并启动多进程处理
+        with mp.Pool(processes=num_processes) as pool:
+            # 为每个批次分配一个进程ID，并提交任务
+            process_args = [(date_batches[i], i+1) for i in range(len(date_batches))]
+            results = pool.starmap(cls._process_date_batch, process_args)
+        
+        # 计算总共处理的日期数量
+        total_processed = sum(results)
         
         # 记录结束时间和总耗时
         end_time = datetime.now()
         total_time = (end_time - start_time).total_seconds()
         logger.info(f"市场分布统计数据更新完成，总耗时: {total_time:.2f}秒, "
-                    f"处理了 {total_dates} 个日期")
+                    f"成功处理了 {total_processed}/{total_dates} 个日期")
 
 
 
 def main():
-    """主函数，用于直接运行时更新市场分布统计数据。"""
+    """主函数，用于直接运行时更新市场分布统计数据。
+    
+    支持命令行参数：
+    --processes N: 指定使用的进程数量，默认为4
+    """
+    import argparse
     from ..database.session import SessionLocal
+    
+    # 解析命令行参数
+    parser = argparse.ArgumentParser(description='更新市场分布统计数据')
+    parser.add_argument('--processes', type=int, default=4, help='并行处理的进程数量，默认为4')
+    args = parser.parse_args()
     
     # 创建数据库会话
     with SessionLocal() as db:
-        # 调用更新方法
-        MarketSummaryService.update_from_derived_index(db)
+        # 调用更新方法，传入进程数量参数
+        MarketSummaryService.update_from_derived_index(db, num_processes=args.processes)
 
 
 if __name__ == "__main__":
