@@ -157,20 +157,77 @@ class MarketSummaryService:
         Args:
             db (Session): 数据库会话。
         """
+        import logging
+        from datetime import datetime
+        import time
+        
+        # 获取logger
+        logger = logging.getLogger('daily_update')
+        
+        # 记录开始时间
+        start_time = datetime.now()
+        logger.info(f"开始更新市场分布统计数据，当前时间: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        # 使用子查询优化性能，避免获取所有日期数据到内存
         # 获取derived_index表中的所有日期
-        dates = db.query(DerivedIndex.date).distinct().order_by(DerivedIndex.date).all()
-        dates = [d[0] for d in dates]
+        dates_query = db.query(DerivedIndex.date).distinct().order_by(DerivedIndex.date).subquery()
         
         # 获取已经处理过的日期
-        processed_dates = db.query(StockMarketSummary.date).distinct().all()
-        processed_dates = [d[0] for d in processed_dates]
+        processed_dates_query = db.query(StockMarketSummary.date).distinct().subquery()
         
-        # 找出未处理的日期
-        unprocessed_dates = [d for d in dates if d not in processed_dates]
+        # 使用SQL差集操作找出未处理的日期
+        unprocessed_dates = db.query(dates_query.c.date).filter(
+            ~dates_query.c.date.in_(db.query(processed_dates_query.c.date))
+        ).all()
+        unprocessed_dates = [d[0] for d in unprocessed_dates]
+        
+        total_dates = len(unprocessed_dates)
+        if total_dates == 0:
+            logger.info("市场分布统计数据已是最新，无需更新")
+            return
+            
+        logger.info(f"共有 {total_dates} 个日期需要处理")
         
         # 处理每个未处理的日期
-        for target_date in unprocessed_dates:
-            cls.calculate_market_summary(db, target_date)
+        for i, target_date in enumerate(unprocessed_dates):
+            # 计算进度
+            progress = (i + 1) / total_dates * 100
+            
+            # 每10个日期或最后一个日期显示一次进度
+            if (i + 1) % 10 == 0 or i == 0 or i == total_dates - 1:
+                # 计算已用时间和预估剩余时间
+                elapsed_time = (datetime.now() - start_time).total_seconds()
+                if i > 0:  # 避免除以零
+                    estimated_total_time = elapsed_time / (i + 1) * total_dates
+                    remaining_time = estimated_total_time - elapsed_time
+                    logger.info(f"处理进度: {progress:.2f}% ({i+1}/{total_dates}), "
+                                f"已用时间: {elapsed_time:.2f}秒, "
+                                f"预估剩余时间: {remaining_time:.2f}秒, "
+                                f"当前处理日期: {target_date}")
+                else:
+                    logger.info(f"处理进度: {progress:.2f}% ({i+1}/{total_dates}), "
+                                f"当前处理日期: {target_date}")
+            
+            # 处理当前日期
+            try:
+                cls.calculate_market_summary(db, target_date)
+                # 每处理10个日期提交一次事务，减少数据库锁定时间
+                if (i + 1) % 10 == 0:
+                    db.commit()
+            except Exception as e:
+                logger.error(f"处理日期 {target_date} 时出错: {str(e)}")
+                # 继续处理下一个日期
+                continue
+        
+        # 确保所有更改都已提交
+        db.commit()
+        
+        # 记录结束时间和总耗时
+        end_time = datetime.now()
+        total_time = (end_time - start_time).total_seconds()
+        logger.info(f"市场分布统计数据更新完成，总耗时: {total_time:.2f}秒, "
+                    f"处理了 {total_dates} 个日期")
+
 
 
 def main():
