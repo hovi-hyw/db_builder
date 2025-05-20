@@ -42,7 +42,7 @@ BEGIN
     WHERE date = target_date
     AND (
         (index_symbol = '899050' AND symbol ~ '^8[378]') OR
-        (index_symbol = '000698' AND symbol ~ '^688') OR
+        (index_symbol = '000688' AND symbol ~ '^688') OR
         (index_symbol = '399006' AND symbol ~ '^30[01]') OR
         (index_symbol = '000001' AND NOT (symbol ~ '^8[378]' OR symbol ~ '^688' OR symbol ~ '^30[01]'))
     );
@@ -60,7 +60,7 @@ BEGIN
     WHERE date = target_date
     AND (
         (index_symbol = '899050' AND symbol ~ '^8[378]') OR
-        (index_symbol = '000698' AND symbol ~ '^688') OR
+        (index_symbol = '000688' AND symbol ~ '^688') OR
         (index_symbol = '399006' AND symbol ~ '^30[01]') OR
         (index_symbol = '000001' AND NOT (symbol ~ '^8[378]' OR symbol ~ '^688' OR symbol ~ '^30[01]'))
     );
@@ -85,11 +85,11 @@ BEGIN
         count_5pct_to_8pct = EXCLUDED.count_5pct_to_8pct,
         count_gt_8pct = EXCLUDED.count_gt_8pct;
 
-    -- 更新 000698
+    -- 更新 000688
     INSERT INTO stock_market_summary (symbol, date, count_lt_neg8pct, count_neg8pct_to_neg5pct, 
         count_neg5pct_to_neg2pct, count_neg2pct_to_2pct, count_2pct_to_5pct, 
         count_5pct_to_8pct, count_gt_8pct)
-    SELECT '000698', NEW.date, s.* FROM calculate_market_summary(NEW.date, '000698') s
+    SELECT '000688', NEW.date, s.* FROM calculate_market_summary(NEW.date, '000688') s
     ON CONFLICT (symbol, date) DO UPDATE SET
         count_lt_neg8pct = EXCLUDED.count_lt_neg8pct,
         count_neg8pct_to_neg5pct = EXCLUDED.count_neg8pct_to_neg5pct,
@@ -150,7 +150,7 @@ BEGIN
     FOR r IN 
         SELECT DISTINCT date 
         FROM derived_index 
-        WHERE symbol IN ('899050', '000698', '399006', '000001')
+        WHERE symbol IN ('899050', '000688', '399006', '000001')
         ORDER BY date
     LOOP
         -- 对每个日期执行更新
@@ -162,7 +162,7 @@ BEGIN
         INSERT INTO stock_market_summary (symbol, date, count_lt_neg8pct, count_neg8pct_to_neg5pct, 
             count_neg5pct_to_neg2pct, count_neg2pct_to_2pct, count_2pct_to_5pct, 
             count_5pct_to_8pct, count_gt_8pct)
-        SELECT '000698', r.date, s.* FROM calculate_market_summary(r.date, '000698') s;
+        SELECT '000688', r.date, s.* FROM calculate_market_summary(r.date, '000688') s;
         
         INSERT INTO stock_market_summary (symbol, date, count_lt_neg8pct, count_neg8pct_to_neg5pct, 
             count_neg5pct_to_neg2pct, count_neg2pct_to_2pct, count_2pct_to_5pct, 
